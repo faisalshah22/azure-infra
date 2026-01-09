@@ -1,19 +1,16 @@
 variable "location" {
   description = "Azure region"
   type        = string
-  default     = "centralindia"
 }
 
 variable "vm_size" {
   description = "Size of the VM (Standard_D2s_v3 recommended for Central India - general purpose, better availability)"
   type        = string
-  default     = "Standard_D2s_v3"
 }
 
 variable "vm_admin_username" {
   description = "VM administrator username (will be stored in Key Vault)"
   type        = string
-  default     = "azureadmin"
 }
 
 variable "sql_server_name" {
@@ -24,13 +21,11 @@ variable "sql_server_name" {
 variable "sql_database_name" {
   description = "Name of the SQL Database"
   type        = string
-  default     = "quotesdb"
 }
 
 variable "sql_admin_login" {
   description = "SQL Server administrator login (will be stored in Key Vault)"
   type        = string
-  default     = "sqladmin"
 }
 
 variable "key_vault_name" {
@@ -48,9 +43,5 @@ variable "use_existing_key_vault" {
 variable "tags" {
   description = "Tags to apply to resources"
   type        = map(string)
-  default = {
-    Environment = "prod"
-    ManagedBy   = "Terraform"
-  }
 }
 

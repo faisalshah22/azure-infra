@@ -2,6 +2,8 @@
 
 Terraform infrastructure for deploying a FastAPI quotes application on Microsoft Azure. This architecture implements a three-tier deployment model with network isolation, secure access via Azure Bastion, and automated secret management.
 
+**Status**: This solution has been successfully deployed to Azure Cloud and tested. All components are operational and verified.
+
 ## Architecture Overview
 
 ```
@@ -100,16 +102,7 @@ Backend configuration is defined in `backend.tf` files in each environment layer
 
 ### Variables Configuration
 
-Edit `tf/environments/prod/products/quotes/terraform.tfvars`:
-
-```hcl
-location          = "centralindia"
-vm_size           = "Standard_D2s_v3"
-vm_admin_username = "azureadmin"
-sql_server_name   = "sql-prod-quotes"
-sql_database_name = "quotesdb"
-sql_admin_login   = "sqladmin"
-```
+Variable definitions are stored in `variables.tf` files, while actual values are configured in `terraform.tfvars` files for each environment layer. This separation allows for better configuration management and environment-specific customization.
 
 ## Deployment Steps
 
