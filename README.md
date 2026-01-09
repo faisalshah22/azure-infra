@@ -256,7 +256,7 @@ sudo ACCEPT_EULA=Y apt-get install -y msodbcsql18 mssql-tools18
 export PATH="$PATH:/opt/mssql-tools18/bin"
 
 # Initialize database
-sqlcmd -S sql-prod-quotes.database.windows.net -U sqladmin -P '<password-from-keyvault>' -d quotesdb -i init-db.sql
+sqlcmd -S <sql-server-name>.database.windows.net -U sqladmin -P '<password-from-keyvault>' -d quotesdb -i init-db.sql
 
 # Create init-db.sql
 sudo tee init-db.sql > /dev/null <<'EOF'
@@ -286,7 +286,7 @@ After=network.target
 Type=simple
 User=root
 WorkingDirectory=/opt/quotes-app
-Environment="SQL_SERVER=sql-prod-quotes.database.windows.net"
+Environment="SQL_SERVER=<sql-server-name>.database.windows.net"
 Environment="SQL_DATABASE=quotesdb"
 Environment="SQL_USER=sqladmin"
 Environment="SQL_PASSWORD=<password-from-keyvault>"
@@ -400,7 +400,7 @@ All resources are deployed to: `tfstate-rg`
 
 - **VNet**: `vnet-prod-connectivity` (10.0.0.0/16)
 - **VM**: `vm-prod-quotes` (Standard_D2s_v3, Central India)
-- **SQL Server**: `sql-prod-quotes.database.windows.net`
+- **SQL Server**: `<sql-server-name>.database.windows.net`
 - **Application Gateway**: `agw-prod-ingress`
 - **Key Vault**: `kv-prod-secrets-<random-suffix>`
 - **Bastion**: `bastion-prod-connectivity`
