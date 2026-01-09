@@ -1,0 +1,82 @@
+#cloud-config
+package_update: true
+package_upgrade: true
+
+write_files:
+- path: /opt/quotes-app/app.py
+  content: ${app_py_content}
+
+- path: /opt/quotes-app/requirements.txt
+  content: ${requirements_content}
+
+- path: /opt/quotes-app/init-db.sql
+  content: ${init_db_content}
+
+- path: /opt/quotes-app/setup.sh
+  permissions: '0755'
+  content: |
+    #!/bin/bash
+    set -e
+
+    exec > >(tee -a /var/log/quotes-app-setup.log) 2>&1
+    echo "Starting setup at $(date)"
+
+    echo "Installing ODBC Driver..."
+    curl -fsSL https://packages.microsoft.com/config/ubuntu/22.04/prod.list > /tmp/microsoft-prod.list || echo "Warning: Failed to download prod.list"
+    sudo cp /tmp/microsoft-prod.list /etc/apt/sources.list.d/ || echo "Warning: Failed to copy prod.list"
+    curl -fsSL https://packages.microsoft.com/keys/microsoft.asc | sudo apt-key add - || echo "Warning: Failed to add key"
+    sudo apt-get update || echo "Warning: apt-get update failed"
+    sudo ACCEPT_EULA=Y apt-get install -y msodbcsql18 mssql-tools18 || echo "Warning: Failed to install ODBC driver"
+
+    echo "Installing Python dependencies..."
+    sudo apt-get install -y python3 python3-pip || echo "Warning: Failed to install Python"
+    cd /opt/quotes-app
+    pip3 install -r requirements.txt || echo "Warning: Failed to install Python packages"
+
+    echo "Waiting for SQL to be ready..."
+    for i in {1..10}; do
+      export PATH="$PATH:/opt/mssql-tools18/bin"
+      if sqlcmd -S ${sql_server_fqdn} -U ${sql_admin_login} -P '${sql_admin_password}' -d ${sql_database_name} -Q "SELECT 1" > /dev/null 2>&1; then
+        echo "SQL is ready!"
+        break
+      fi
+      echo "Waiting for SQL... attempt $i/10"
+      sleep 30
+    done
+
+    echo "Initializing database..."
+    export PATH="$PATH:/opt/mssql-tools18/bin"
+    sqlcmd -S ${sql_server_fqdn} -U ${sql_admin_login} -P '${sql_admin_password}' -d ${sql_database_name} -i init-db.sql || echo "Warning: Database initialization may have failed"
+
+    echo "Creating systemd service..."
+    sudo tee /etc/systemd/system/quotes-app.service > /dev/null <<EOF
+    [Unit]
+    Description=Quotes FastAPI App
+    After=network.target
+
+    [Service]
+    Type=simple
+    User=root
+    WorkingDirectory=/opt/quotes-app
+    Environment="SQL_SERVER=${sql_server_fqdn}"
+    Environment="SQL_DATABASE=${sql_database_name}"
+    Environment="SQL_USER=${sql_admin_login}"
+    Environment="SQL_PASSWORD=${sql_admin_password}"
+    ExecStart=/usr/bin/python3 -m uvicorn app:app --host 0.0.0.0 --port 8000
+    Restart=always
+    RestartSec=10
+
+    [Install]
+    WantedBy=multi-user.target
+    EOF
+
+    echo "Starting service..."
+    sudo systemctl daemon-reload
+    sudo systemctl enable quotes-app
+    sudo systemctl start quotes-app || echo "Warning: Failed to start service"
+    echo "Setup completed at $(date)"
+
+runcmd:
+- mkdir -p /opt/quotes-app
+- chmod +x /opt/quotes-app/setup.sh
+- /opt/quotes-app/setup.sh
