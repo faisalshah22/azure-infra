@@ -310,7 +310,7 @@ sudo systemctl status quotes-app
 ### Network Security
 
 - **VM**: No public IP, accessible only via Bastion or from App Gateway subnet
-- **SQL Database**: Public network access enabled but restricted via VNet rules
+- **SQL Database**: accessible only via VNet rules within the VPC
 - **Application Gateway**: Public IP with Standard SKU
 - **NSG Rules**:
   - Allow App Gateway subnet → VM on port 8000

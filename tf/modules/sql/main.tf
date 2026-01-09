@@ -15,7 +15,7 @@ resource "azurerm_mssql_server" "main" {
   administrator_login          = var.sql_admin_login
   administrator_login_password = var.sql_admin_password
 
-  public_network_access_enabled = true
+  public_network_access_enabled = false
 
   tags = var.tags
 }
