@@ -461,7 +461,7 @@ sudo cat /var/log/cloud-init-output.log
 
 ## Cost Optimization
 
-- **VM**: Standard_D2s_v3 (2 vCPU, 8GB RAM) - can be scaled down if needed
+- **VM**: Standard_D2s_v3 (2 vCPU, 8GB RAM) this vm was used because small vm's where not available - can be scaled down 
 - **SQL Database**: Basic tier (2GB max)
 - **Application Gateway**: Standard_v2 with capacity 1
 - **Bastion**: Basic tier (manual code deployment required)
@@ -474,17 +474,5 @@ sudo cat /var/log/cloud-init-output.log
 - Scale to multiple VMs with load balancing
 - Implement private endpoints for SQL Database
 - Add SSL/TLS certificates to Application Gateway
+- can move to containered system AKS
 
-## Support
-
-For issues or questions:
-1. Check Terraform state: `terraform show`
-2. Review Azure Portal resource health
-3. Check Application Gateway backend health
-4. Review VM and SQL logs
-
----
-
-**Deployed on**: Microsoft Azure Cloud  
-**Region**: Central India  
-**Deployment Date**: January 2026
