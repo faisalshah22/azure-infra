@@ -31,7 +31,9 @@ azure-infra/
 ├── app/                          # Application source code
 │   ├── app.py                   # FastAPI application
 │   ├── requirements.txt         # Python dependencies
-│   └── init-db.sql             # Database schema and seed data
+│   ├── init-db.sql             # Database schema and seed data
+│   ├── Dockerfile               # Multi-stage Dockerfile for containerization
+│   └── .dockerignore            # Docker ignore file
 │
 └── tf/                          # Terraform infrastructure
     ├── modules/                 # Reusable Terraform modules
@@ -305,6 +307,64 @@ sudo systemctl start quotes-app
 sudo systemctl status quotes-app
 ```
 
+## Docker Deployment
+
+The application includes a multi-stage Dockerfile for containerized deployment. This enables easy deployment to container orchestration platforms like Azure Kubernetes Service (AKS).
+
+### Dockerfile Overview
+
+The multi-stage Dockerfile (`app/Dockerfile`) consists of two stages:
+
+1. **Builder Stage**: Installs build dependencies, ODBC drivers, and Python packages
+2. **Runtime Stage**: Creates a minimal image with only runtime dependencies
+
+### Building the Docker Image
+
+```bash
+cd app
+docker build -t quotes-app:latest .
+```
+
+### Running the Container Locally
+
+```bash
+docker run -d \
+  --name quotes-app \
+  -p 8000:8000 \
+  -e SQL_SERVER=<sql-server-name>.database.windows.net \
+  -e SQL_DATABASE=quotesdb \
+  -e SQL_USER=sqladmin \
+  -e SQL_PASSWORD=<password-from-keyvault> \
+  quotes-app:latest
+```
+
+### Testing the Containerized Application
+
+```bash
+curl http://localhost:8000/
+```
+
+### Docker Image Optimization
+
+The multi-stage build reduces the final image size by:
+- Separating build-time and runtime dependencies
+- Removing build tools from the final image
+- Using Python slim base image
+- Cleaning up package manager cache
+
+### Pushing to Azure Container Registry
+
+```bash
+# Login to Azure Container Registry
+az acr login --name <your-acr-name>
+
+# Tag the image
+docker tag quotes-app:latest <your-acr-name>.azurecr.io/quotes-app:latest
+
+# Push the image
+docker push <your-acr-name>.azurecr.io/quotes-app:latest
+```
+
 ## Security Architecture
 
 ### Network Security
@@ -474,5 +534,13 @@ sudo cat /var/log/cloud-init-output.log
 - Scale to multiple VMs with load balancing
 - Implement private endpoints for SQL Database
 - Add SSL/TLS certificates to Application Gateway
-- can move to containered system AKS
+- **Deploy to Azure Kubernetes Service (AKS)**: 
+  - Use the provided multi-stage Dockerfile to containerize the application
+  - Deploy to AKS cluster with proper networking and security configurations
+  - Implement horizontal pod autoscaling based on CPU/memory metrics
+  - Use Azure Container Registry (ACR) for image storage
+  - Configure Azure SQL Database connection pooling for Kubernetes pods
+  - Implement Kubernetes secrets for SQL credentials management
+  - Use Azure Load Balancer or Application Gateway Ingress Controller for traffic routing
+  - Enable Azure Monitor / grafana stack for Containers for observability
 
