@@ -28,12 +28,6 @@ variable "app_gateway_subnet_cidr" {
   default     = null
 }
 
-variable "bastion_subnet_cidr" {
-  description = "CIDR block for Bastion subnet (optional, leave empty to disable Bastion)"
-  type        = string
-  default     = null
-}
-
 variable "tags" {
   description = "Tags to apply to resources"
   type        = map(string)

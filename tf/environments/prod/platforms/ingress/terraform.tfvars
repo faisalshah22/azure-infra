@@ -1,5 +1,6 @@
-location      = "centralindia"
-vm_private_ip = "10.0.2.10"
+location = "centralindia"
+
+lb_zones = [1, 2, 3]
 
 tags = {
   Environment = "prod"

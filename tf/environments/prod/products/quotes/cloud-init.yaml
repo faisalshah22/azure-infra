@@ -4,13 +4,19 @@ package_upgrade: true
 
 write_files:
 - path: /opt/quotes-app/app.py
-  content: ${app_py_content}
+  encoding: b64
+  content: ${app_py_content_b64}
+  permissions: '0644'
 
 - path: /opt/quotes-app/requirements.txt
-  content: ${requirements_content}
+  encoding: b64
+  content: ${requirements_content_b64}
+  permissions: '0644'
 
 - path: /opt/quotes-app/init-db.sql
-  content: ${init_db_content}
+  encoding: b64
+  content: ${init_db_content_b64}
+  permissions: '0644'
 
 - path: /opt/quotes-app/setup.sh
   permissions: '0755'

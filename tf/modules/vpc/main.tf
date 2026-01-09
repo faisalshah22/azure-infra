@@ -29,7 +29,7 @@ resource "azurerm_subnet" "private" {
   virtual_network_name = azurerm_virtual_network.main.name
   address_prefixes     = [var.private_subnet_cidr]
 
-  service_endpoints = ["Microsoft.Sql"]
+  service_endpoints = ["Microsoft.Sql", "Microsoft.KeyVault"]
 }
 
 resource "azurerm_subnet" "app_gateway" {
@@ -37,13 +37,5 @@ resource "azurerm_subnet" "app_gateway" {
   resource_group_name  = var.resource_group_name
   virtual_network_name = azurerm_virtual_network.main.name
   address_prefixes     = [var.app_gateway_subnet_cidr]
-}
-
-resource "azurerm_subnet" "bastion" {
-  count                = var.bastion_subnet_cidr != "" ? 1 : 0
-  name                 = "AzureBastionSubnet"
-  resource_group_name  = var.resource_group_name
-  virtual_network_name = azurerm_virtual_network.main.name
-  address_prefixes     = [var.bastion_subnet_cidr]
 }
 

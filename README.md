@@ -1,30 +1,94 @@
 # Azure Infrastructure - Quotes Application
 
-Terraform infrastructure for deploying a FastAPI quotes application on Microsoft Azure. This architecture implements a three-tier deployment model with network isolation, secure access via Azure Bastion, and automated secret management.
+Terraform infrastructure for deploying a highly available FastAPI quotes application on Microsoft Azure. This architecture implements a three-tier deployment model with network isolation, automated application deployment, and comprehensive security measures.
 
-**Status**: This solution has been successfully deployed to Azure Cloud and tested. All components are operational and verified.
+**Status**: Successfully deployed to Azure Cloud and tested. All components are operational and verified.
+
+**High Availability**: The infrastructure implements full High Availability (HA) with autoscaling, zone redundancy, and automated failover capabilities.
 
 ## Architecture Overview
 
 ```
 Internet
   ↓
-Azure Application Gateway (Public IP)
+Azure Load Balancer (Standard SKU, Public IP)
   ↓
-Linux VM (Private Subnet - )
+Virtual Machine Scale Set (VMSS) - Auto-scaling
+  ├── VM Instance 1 (Port 8000)
+  ├── VM Instance 2 (Port 8000)
+  └── Auto-scaled instances (2-10 based on CPU)
   ↓
-Azure SQL Database (Private Access via VNet Rules)
+Azure SQL Database (Private Endpoint, VNet-only access)
 ```
 
 ### Components
 
-- **Application Gateway**: Public-facing load balancer routing HTTP traffic to the VM did not added https needed a domain name for it
-- **Linux VM**: Ubuntu 22.04 LTS running FastAPI application on port 8000
-- **Azure SQL Database**: Managed SQL Server with quotes data
-- **Azure Bastion**: Secure browser-based access to VM (no SSH keys required)
-- **Key Vault**: Automated secret generation and storage for credentials
-- **Network Security Groups**: Restrictive firewall rules allowing only required traffic
+- **Azure Load Balancer**: Standard SKU load balancer with public IP, routing HTTP traffic to VMSS instances
+- **Virtual Machine Scale Set (VMSS)**: Auto-scaling Linux VMs (Ubuntu 22.04 LTS) running FastAPI application
+- **Azure SQL Database**: Managed SQL Server with Private Endpoint (no public access)
+- **Key Vault**: Automated secret generation and secure storage for credentials
+- **Network Security Groups (NSG)**: Restrictive firewall rules for ingress traffic
 - **Log Analytics Workspace**: Centralized logging and monitoring
+- **Cloud-init**: Automated application deployment on every VM instance
+
+## High Availability (HA) Features
+
+### Application Layer (VMSS)
+- **Minimum 2 Instances**: Ensures redundancy and fault tolerance
+- **Auto-scaling**: Automatically scales from 2 to 10 instances based on CPU usage
+  - **Scale Out**: When average CPU > 70% for 5 minutes, adds 1 VM
+  - **Scale In**: When average CPU < 30% for 5 minutes, removes 1 VM
+- **Automatic Load Balancer Integration**: All VMSS instances (including new ones from autoscaling) are automatically added to the Load Balancer backend pool
+- **Health Probes**: Load Balancer monitors VM health and routes traffic only to healthy instances
+- **Zero-Downtime Scaling**: New VMs are added to the Load Balancer as soon as they're healthy
+
+### Database Layer (SQL)
+- **Standard S2 Tier**: Production-grade database with 99.99% SLA
+- **Geo-Backup Enabled**: Automatic backups with geo-redundancy
+- **Short-term Retention**: 7 days of point-in-time restore capability
+- **Private Endpoint**: Database accessible only within VNet (no public access)
+- **Transparent Data Encryption (TDE)**: Automatic encryption at rest
+
+### Network Layer (Load Balancer)
+- **Standard SKU**: Zone-redundant load balancer with high availability
+- **Health Probes**: HTTP probes on port 8000, checking `/` endpoint every 15 seconds
+- **Automatic Backend Discovery**: VMSS instances automatically registered in backend pool
+- **Traffic Distribution**: Even distribution across healthy backend instances
+
+## Network Security (NSG Rules)
+
+The infrastructure implements strict network security through NSG rules:
+
+### Inbound Rules (Priority Order)
+
+1. **AllowAppGatewayToVM** (Priority 1000)
+   - **Source**: App Gateway subnet (10.0.3.0/24)
+   - **Destination**: Port 8000
+   - **Purpose**: Allow traffic from Application Gateway subnet (legacy support)
+
+2. **AllowLoadBalancerToVM** (Priority 1002)
+   - **Source**: `AzureLoadBalancer` service tag
+   - **Destination**: Port 8000
+   - **Purpose**: Allow Azure Load Balancer health probes
+
+3. **AllowInternetToVM** (Priority 1003)
+   - **Source**: `*` (all sources)
+   - **Destination**: Port 8000
+   - **Purpose**: Allow client traffic from Load Balancer (after NAT)
+
+### Outbound Rules
+
+1. **AllowVMToSQL** (Priority 1001)
+   - **Source**: All VMs
+   - **Destination**: Port 1433 (SQL)
+   - **Purpose**: Allow VMSS instances to connect to SQL Database
+
+### Security Best Practices
+
+- **No Public IPs on VMs**: All VMs are in private subnet, accessible only via Load Balancer
+- **SQL Private Endpoint**: Database has no public access, only accessible within VNet
+- **Key Vault Network Restrictions**: Key Vault accessible only from VNet and specific IPs
+- **Service Endpoints**: Microsoft.Sql and Microsoft.KeyVault service endpoints enabled on private subnet
 
 ## Folder Structure
 
@@ -34,81 +98,66 @@ azure-infra/
 │   ├── app.py                   # FastAPI application
 │   ├── requirements.txt         # Python dependencies
 │   ├── init-db.sql             # Database schema and seed data
-│   ├── Dockerfile               # Multi-stage Dockerfile for containerization
-│   └── .dockerignore            # Docker ignore file
+│   ├── Dockerfile               # Multi-stage Dockerfile
+│   └── README.md               # Application documentation
 │
-└── tf/                          # Terraform infrastructure
-    ├── modules/                 # Reusable Terraform modules
-    │   ├── vpc/                 # Virtual Network and Subnets
-    │   ├── nsg/                 # Network Security Groups
-    │   ├── app-gateway/         # Application Gateway
-    │   ├── bastion/             # Azure Bastion Host
-    │   ├── vm/                  # Linux Virtual Machine
-    │   ├── sql/                 # Azure SQL Database
-    │   └── monitoring/          # Log Analytics Workspace
+├── tf/                          # Terraform infrastructure
+│   ├── modules/                 # Reusable Terraform modules
+│   │   ├── vpc/                # Virtual Network and Subnets
+│   │   ├── nsg/                # Network Security Groups
+│   │   ├── load-balancer/      # Azure Load Balancer
+│   │   ├── vmss/               # Virtual Machine Scale Set
+│   │   ├── sql/                # Azure SQL Database
+│   │   └── monitoring/         # Log Analytics Workspace
+│   │
+│   └── environments/
+│       └── prod/
+│           ├── landing-zones/
+│           │   └── connectivity/    # VNet, Subnets
+│           ├── platforms/
+│           │   └── ingress/         # Load Balancer
+│           └── products/
+│               └── quotes/          # VMSS, SQL, NSGs, Monitoring
 │
-└── environments/
-    └── prod/
-        ├── landing-zones/
-            │   └── connectivity/    # VNet, Subnets, Bastion
-        ├── platforms/
-            │   └── ingress/         # Application Gateway
-        └── products/
-                └── quotes/          # VM, SQL, NSGs, Monitoring
+├── setup-backend.sh            # Automated Terraform backend setup
+└── README.md                   # This file
 ```
-
-## Deployment Architecture
-
-### Three-Tier Deployment Model
-
-1. **Landing Zones (Connectivity)**
-   - Virtual Network with address space:
-   - Subnets: Public, Private, App Gateway, Bastion
-   - Azure Bastion for secure VM access
-   - Microsoft.Sql service endpoint on private subnet
-
-2. **Platforms (Ingress)**
-   - Application Gateway Standard_v2
-   - Public IP for internet access
-   - Health probes and routing rules
-   - SSL/TLS policy configuration
-
-3. **Products (Quotes Application)**
-   - Linux VM (Standard_D2s_v3) in private subnet
-   - Azure SQL Database with VNet rules
-   - Network Security Groups
-   - Key Vault for credential management
-   - Log Analytics Workspace
 
 ## Prerequisites
 
-- Azure CLI installed and authenticated
-- Terraform >= 1.0
-- Azure subscription with contributor permissions
-- Resource group `tfstate-rg` created manually
-- Storage account `tfstatestoragein` for Terraform state
+- **Azure CLI** installed and authenticated (`az login`)
+- **Terraform** >= 1.0
+- **Azure Subscription** with contributor permissions
+- **Resource Group** for Terraform state storage (created automatically by setup script)
 
-## Configuration
+## Initial Setup
 
-### Backend Configuration
+### Step 1: Configure Terraform Backend
 
-All Terraform states are stored in Azure Storage Account:
+Before deploying infrastructure, set up the Terraform backend storage. This is a one-time setup that creates the resource group, storage account, and container for storing Terraform state files.
 
-- **Storage Account**: `tfstatestoragein`
-- **Resource Group**: `tfstate-rg`
-- **Container**: `tfstate`
+#### Automated Setup (Recommended)
 
-Backend configuration is defined in `backend.tf` files in each environment layer.
+Run the provided setup script:
 
-### Variables Configuration
+```bash
+chmod +x setup-backend.sh
+./setup-backend.sh
+```
 
-Variable definitions are stored in `variables.tf` files, while actual values are configured in `terraform.tfvars` files for each environment layer. This separation allows for better configuration management and environment-specific customization.
+The script will:
+1. Create resource group: `tfstate-rg`
+2. Create storage account: `tfstatestoragein`
+3. Create storage container: `tfstate`
+4. Configure location: `centralindia`
 
 ## Deployment Steps
 
-### Step 1: Deploy Connectivity Layer
+Deploy infrastructure in the following order to ensure proper dependency resolution:
 
-Creates the network foundation including VNet, subnets, and Bastion.
+### Step 1: Deploy Connectivity Layer (VNet and Subnets)
+
+Creates the Virtual Network, subnets, and network infrastructure.
 
 ```bash
 cd tf/environments/prod/landing-zones/connectivity
@@ -117,14 +166,45 @@ terraform plan
 terraform apply
 ```
 
+**Resources Created:**
+- Virtual Network: `vnet-prod-connectivity` (10.0.0.0/16)
+- Public Subnet: 10.0.1.0/24
+- Private Subnet: 10.0.2.0/24 (VMSS subnet)
+- App Gateway Subnet: 10.0.3.0/24
+- Service Endpoints: Microsoft.Sql, Microsoft.KeyVault
+
 **Outputs:**
-- VNet ID and address space
-- Subnet IDs (public, private, app-gateway, bastion)
-- Bastion host details
+- VNet ID
+- Subnet IDs (public, private, app-gateway)
+- Subnet CIDR blocks
 
-### Step 2: Deploy Quotes Application
+### Step 2: Deploy Ingress Layer (Load Balancer)
 
-Creates VM, SQL Database, Key Vault, and supporting resources.
+Creates the Azure Load Balancer with public IP and backend pool.
+
+```bash
+cd tf/environments/prod/platforms/ingress
+terraform init
+terraform plan
+terraform apply
+```
+
+**Resources Created:**
+- Azure Load Balancer Standard SKU
+- Public IP address (Static, Standard)
+- Backend address pool for VMSS
+- HTTP health probe on port 8000
+- Load balancing rule (Port 80 → 8000)
+
+**Output:**
+- Load Balancer public IP address
+- Backend pool ID (used by VMSS)
+
+**Note**: Save the public IP address - you'll use it to access the application.
+
+### Step 3: Deploy Quotes Application (VMSS, SQL, Key Vault)
+
+Creates VMSS with autoscaling, SQL Database, Key Vault, and supporting resources.
 
 ```bash
 cd tf/environments/prod/products/quotes
@@ -135,405 +215,344 @@ terraform apply
 
 **Resources Created:**
 - Key Vault with auto-generated secrets
-- SQL Server with VNet rules
-- Linux VM with dynamic IP allocation
-- Network Security Groups
+- SQL Server with Private Endpoint (no public access)
+- SQL Database (Standard S2 tier)
+- Virtual Machine Scale Set (VMSS) with autoscaling
+- Network Security Groups with ingress rules
 - Log Analytics Workspace
 
+**VMSS Features:**
+- **Automatic Application Deployment**: Each VM automatically builds and deploys the Python application using cloud-init (custom_data)
+- **Automatic Load Balancer Integration**: All VMSS instances (including new ones from autoscaling) are automatically added to the Load Balancer backend pool
+- **Health Probes**: Load Balancer monitors VM health and routes traffic only to healthy instances
+- **Auto-scaling**: Automatically scales based on CPU usage (2-10 instances)
+
 **Outputs:**
-- VM private IP address
+- VMSS ID
+- VMSS Name
 - SQL Server FQDN
-- VM ID
+- SQL Database Name
 
-### Step 3: Deploy Ingress Layer
+## Automated Application Deployment
 
-Creates Application Gateway that routes traffic to the VM.
+The application is **fully automated** using cloud-init. Every VM instance automatically:
+
+1. **Installs Dependencies**: Python 3, pip, ODBC Driver 18 for SQL Server
+2. **Deploys Application**: Copies application files to `/opt/quotes-app/`
+3. **Initializes Database**: Runs SQL initialization script
+4. **Starts Service**: Creates and starts systemd service (`quotes-app`)
+5. **Health Monitoring**: Application runs on port 8000, monitored by Load Balancer
+
+### Application Details
+
+- **Framework**: FastAPI 0.104.1
+- **Server**: Uvicorn 0.24.0
+- **Port**: 8000
+- **Endpoint**: `GET /` - Returns random quote from database
+- **Database**: Azure SQL Database via pyodbc
+- **Service**: Systemd service with auto-restart on failure
+
+### Cloud-init Configuration
+
+The cloud-init script (`cloud-init.yaml`) is automatically:
+- Base64-encoded and injected into VMSS via `custom_data`
+- Executed on every VM instance during boot
+- Logged to `/var/log/cloud-init-output.log` and `/var/log/quotes-app-setup.log`
+
+## Accessing the Application
+
+### Via Load Balancer Public IP
+
+Once deployment is complete, access the application using the Load Balancer public IP:
 
 ```bash
+# Get Load Balancer public IP
 cd tf/environments/prod/platforms/ingress
-terraform init
-terraform plan
-terraform apply
+terraform output public_ip_address
+
+# Test the application
+curl http://<load-balancer-ip>/
 ```
 
-**Resources Created:**
-- Application Gateway Standard_v2
-- Public IP address
-- Health probes and routing rules
+**Expected Response:**
+```json
+{"quote": "The only way to do great work is to love what you do."}
+```
 
-**Output:**
-- Application Gateway public IP: `135.235.173.95`
+### Retrieve Credentials (If Needed)
 
-## Manual Application Deployment
-
-Due to Azure Bastion Basic tier limitations, the application code was manually deployed to the VM. The cloud-init script is configured but requires manual intervention for complete setup.
-
-### Access VM via Azure Bastion
-
-1. Navigate to Azure Portal → Virtual Machines
-2. Select `vm-prod-quotes`
-3. Click "Bastion" in the left menu
-4. Enter credentials:
-   - **Username**: `azureadmin`
-   - **Password**: Retrieve from Key Vault (see below)
-
-### Retrieve Credentials from Key Vault
+All credentials are stored in Azure Key Vault:
 
 ```bash
 # Get Key Vault name
 az keyvault list --resource-group tfstate-rg --query "[?contains(name, 'kv-prod-secrets')].name" -o tsv
 
-# Get VM password
-az keyvault secret show --vault-name <key-vault-name> --name vm-admin-password --query "value" -o tsv
+# Get VM admin password
+az keyvault secret show \
+  --vault-name <key-vault-name> \
+  --name vm-admin-password \
+  --query value -o tsv
 
-# Get SQL credentials
-az keyvault secret show --vault-name <key-vault-name> --name sql-admin-password --query "value" -o tsv
+# Get SQL admin password
+az keyvault secret show \
+  --vault-name <key-vault-name> \
+  --name sql-admin-password \
+  --query value -o tsv
 ```
 
-### Manual Application Setup on VM beacuse i have setup the basic bastion avoided ssh key based acces due to security reasons
+**Default Credentials:**
+- **VM Username**: `azureadmin` (from `terraform.tfvars`)
+- **SQL Login**: `sqladmin` (from `terraform.tfvars`)
+- **Passwords**: Auto-generated, stored in Key Vault
 
-Once connected via Bastion, execute the following commands:
+## Configuration
 
-```bash
-# Create application directory
-sudo mkdir -p /opt/quotes-app
-cd /opt/quotes-app
+### Variable Files (terraform.tfvars)
 
-# Create requirements.txt
-sudo tee requirements.txt > /dev/null <<'EOF'
-fastapi==0.104.1
-uvicorn==0.24.0
-pyodbc==5.0.1
-EOF
+All configuration values are externalized in `terraform.tfvars` files:
 
-# Create app.py
-sudo tee app.py > /dev/null <<'EOF'
-from fastapi import FastAPI
-import pyodbc
-import os
+#### Connectivity Layer (`tf/environments/prod/landing-zones/connectivity/terraform.tfvars`)
 
-app = FastAPI()
-
-@app.get("/")
-async def get_quote():
-    try:
-        server = os.environ.get("SQL_SERVER")
-        database = os.environ.get("SQL_DATABASE")
-        username = os.environ.get("SQL_USER")
-        password = os.environ.get("SQL_PASSWORD")
-        
-        conn_str = f"Driver={{ODBC Driver 18 for SQL Server}};Server=tcp:{server},1433;Database={database};Uid={username};Pwd={password};Encrypt=yes;TrustServerCertificate=yes;Connection Timeout=30;"
-        
-        conn = pyodbc.connect(conn_str)
-        query = conn.execute("SELECT TOP 1 quote FROM quotes ORDER BY NEWID()")
-        row = query.fetchone()
-        
-        conn.close()
-        
-        if row:
-            return {"quote": row[0]}
-        else:
-            return {"quote": "No quotes available"}
-    except Exception as e:
-        return {"error": str(e)}
-EOF
-
-# Install Python packages
-sudo apt-get update
-sudo apt-get install -y python3-pip
-sudo pip3 install -r requirements.txt
-
-# Install SQL Server tools
-curl https://packages.microsoft.com/config/ubuntu/22.04/prod.list | sudo tee /etc/apt/sources.list.d/mssql-release.list
-curl https://packages.microsoft.com/keys/microsoft.asc | sudo apt-key add -
-sudo apt-get update
-sudo ACCEPT_EULA=Y apt-get install -y msodbcsql18 mssql-tools18
-export PATH="$PATH:/opt/mssql-tools18/bin"
-
-# Initialize database
-sqlcmd -S <sql-server-name>.database.windows.net -U sqladmin -P '<password-from-keyvault>' -d quotesdb -i init-db.sql
-
-# Create init-db.sql
-sudo tee init-db.sql > /dev/null <<'EOF'
-IF NOT EXISTS (SELECT * FROM sys.objects WHERE object_id = OBJECT_ID(N'[dbo].[quotes]') AND type in (N'U'))
-BEGIN
-    CREATE TABLE quotes (
-        id INT IDENTITY(1,1) PRIMARY KEY,
-        quote NVARCHAR(MAX) NOT NULL
-    );
-    
-    INSERT INTO quotes (quote) VALUES
-    ('The only way to do great work is to love what you do.'),
-    ('Innovation distinguishes between a leader and a follower.'),
-    ('Life is what happens to you while you''re busy making other plans.'),
-    ('The future belongs to those who believe in the beauty of their dreams.'),
-    ('It is during our darkest moments that we must focus to see the light.');
-END
-EOF
-
-# Create systemd service
-sudo tee /etc/systemd/system/quotes-app.service > /dev/null <<'EOF'
-[Unit]
-Description=Quotes FastAPI App
-After=network.target
-
-[Service]
-Type=simple
-User=root
-WorkingDirectory=/opt/quotes-app
-Environment="SQL_SERVER=<sql-server-name>.database.windows.net"
-Environment="SQL_DATABASE=quotesdb"
-Environment="SQL_USER=sqladmin"
-Environment="SQL_PASSWORD=<password-from-keyvault>"
-ExecStart=/usr/bin/python3 -m uvicorn app:app --host 0.0.0.0 --port 8000
-Restart=always
-RestartSec=10
-
-[Install]
-WantedBy=multi-user.target
-EOF
-
-# Start service
-sudo systemctl daemon-reload
-sudo systemctl enable quotes-app
-sudo systemctl start quotes-app
-sudo systemctl status quotes-app
+```hcl
+location                = "centralindia"
+vnet_address_space      = "10.0.0.0/16"
+public_subnet_cidr      = "10.0.1.0/24"
+private_subnet_cidr     = "10.0.2.0/24"
+app_gateway_subnet_cidr = "10.0.3.0/24"
 ```
 
-## Docker Deployment
+#### Ingress Layer (`tf/environments/prod/platforms/ingress/terraform.tfvars`)
 
-The application includes a multi-stage Dockerfile for containerized deployment. This enables easy deployment to container orchestration platforms like Azure Kubernetes Service (AKS).
-
-### Dockerfile Overview
-
-The multi-stage Dockerfile (`app/Dockerfile`) consists of two stages:
-
-1. **Builder Stage**: Installs build dependencies, ODBC drivers, and Python packages
-2. **Runtime Stage**: Creates a minimal image with only runtime dependencies
-
-### Building the Docker Image
-
-```bash
-cd app
-docker build -t quotes-app:latest .
+```hcl
+location  = "centralindia"
+lb_zones  = [1, 2, 3]  # Availability zones for Load Balancer
 ```
 
-### Running the Container Locally
+#### Products Layer (`tf/environments/prod/products/quotes/terraform.tfvars`)
 
-```bash
-docker run -d \
-  --name quotes-app \
-  -p 8000:8000 \
-  -e SQL_SERVER=<sql-server-name>.database.windows.net \
-  -e SQL_DATABASE=quotesdb \
-  -e SQL_USER=sqladmin \
-  -e SQL_PASSWORD=<password-from-keyvault> \
-  quotes-app:latest
+```hcl
+location          = "centralindia"
+vm_size           = "Standard_D2s_v3"  # 2 vCPU, 8GB RAM
+vm_admin_username = "azureadmin"
+sql_server_name   = "sql-prod-quotes"
+sql_database_name = "quotesdb"
+sql_admin_login   = "sqladmin"
+
+# High Availability Configuration
+vm_os_disk_storage_account_type = "Premium_LRS"
+
+# VMSS Autoscaling Configuration
+vmss_initial_instance_count          = 2  # HA: 2 instances minimum
+vmss_zones                           = []  # No zones - Azure places VMs automatically
+vmss_autoscaling_enabled             = true
+vmss_autoscale_min_capacity          = 2  # HA: maintain 2 instances minimum
+vmss_autoscale_max_capacity          = 10  # Scale up to 10 for high load
+vmss_autoscale_cpu_threshold_scale_out = 70
+vmss_autoscale_cpu_threshold_scale_in  = 30
+
+# SQL Database Configuration
+sql_database_sku_name            = "S2"
+sql_database_max_size_gb         = 50
+sql_zone_redundant               = false
+sql_read_scale_enabled           = false
+sql_geo_backup_enabled           = true
+sql_short_term_retention_days    = 7
+
+# PII Protection Configuration
+key_vault_allowed_ips = ["<your-ip>"]  # Add your IP for Terraform access
+sql_audit_retention_days = 90
+sql_threat_detection_email_addresses = []  # Add email addresses for alerts
+sql_threat_detection_retention_days = 90
+
+tags = {
+  Environment        = "prod"
+  ManagedBy          = "Terraform"
+  DataClassification = "PII"
+  Compliance         = "Critical"
+}
 ```
 
-### Testing the Containerized Application
+## High Availability Best Practices
 
-```bash
-curl http://localhost:8000/
-```
+1. **Use VMSS for Autoscaling**: VMSS automatically scales VMs based on CPU load
+2. **Configure Appropriate Thresholds**: Adjust CPU thresholds based on your application's behavior
+3. **Use Standard+ SQL Tier**: Standard S2+ or Premium tier for better SLA
+4. **Enable VMSS Autoscaling**: Keep VMSS autoscaling enabled for automatic VM scaling based on traffic
+5. **Configure Zone Redundancy**: For critical workloads, enable zone redundancy on SQL Database
+6. **Monitor Health**: Use Load Balancer health probes and Azure Monitor for proactive monitoring
+7. **Load Balancer Integration**: Load Balancer automatically discovers all VMSS instances and distributes traffic
 
-### Docker Image Optimization
+### VM Autoscaling Behavior
 
-The multi-stage build reduces the final image size by:
-- Separating build-time and runtime dependencies
-- Removing build tools from the final image
-- Using Python slim base image
-- Cleaning up package manager cache
+**VMSS Autoscaling with Load Balancer**:
+- VMs automatically scale based on CPU usage
+- **Scale Out**: When average CPU across all VMs > 70% for 5 minutes, adds 1 VM (up to max)
+- **Scale In**: When average CPU < 30% for 5 minutes, removes 1 VM (down to min)
+- **Cooldown Periods**: 5 minutes for scale out, 10 minutes for scale in
+- **Automatic Load Balancer Integration**: All new VMSS instances (from autoscaling) are automatically added to the Load Balancer backend pool - no manual configuration needed
+- **Application Deployment**: Each new VM automatically builds and deploys the Python application via cloud-init (custom_data)
+- **Health Monitoring**: Load Balancer health probes ensure only healthy VMs receive traffic
+- **Zero-Downtime Scaling**: New VMs are added to the Load Balancer as soon as they're healthy
 
-### Pushing to Azure Container Registry
+## PII (Personally Identifiable Information) Protection
 
-```bash
-# Login to Azure Container Registry
-az acr login --name <your-acr-name>
+This infrastructure treats all data as critical PII and implements comprehensive protection measures:
 
-# Tag the image
-docker tag quotes-app:latest <your-acr-name>.azurecr.io/quotes-app:latest
-
-# Push the image
-docker push <your-acr-name>.azurecr.io/quotes-app:latest
-```
-
-## Security Architecture
+### Data Encryption
+- **SQL Database TDE (Transparent Data Encryption)**: Enabled by default - all data at rest is automatically encrypted
+- **TLS 1.2**: Minimum TLS version enforced for all SQL connections
+- **Key Vault Encryption**: All secrets encrypted at rest with Azure Key Vault
 
 ### Network Security
-
-- **VM**: No public IP, accessible only via Bastion or from App Gateway subnet
-- **SQL Database**: accessible only via VNet rules within the VPC
-- **Application Gateway**: Public IP with Standard SKU
-- **NSG Rules**:
-  - Allow App Gateway subnet → VM on port 8000
-  - Allow VM → SQL on port 1433
-  - Deny all other traffic
-
-### Secret Management
-
-All credentials are automatically generated and stored in Azure Key Vault:
-
-- **VM Admin Password**: 16-character random password
-- **SQL Admin Password**: 16-character random password
-- **VM Admin Username**: Configurable (default: `azureadmin`)
-- **SQL Admin Login**: Configurable (default: `sqladmin`)
-
-Key Vault is created automatically in the `tfstate-rg` resource group with appropriate access policies.
+- **SQL Private Endpoint**: Database accessible only within VNet (no public access)
+- **No Public IPs on VMs**: All VMs in private subnet, accessible only via Load Balancer
+- **NSG Rules**: Restrictive firewall rules allowing only required traffic
+- **Service Endpoints**: Microsoft.Sql and Microsoft.KeyVault service endpoints for secure connectivity
 
 ### Access Control
+- **Key Vault Network Restrictions**: Access restricted to VNet and specific IPs
+- **Key Vault Purge Protection**: Prevents permanent deletion of secrets
+- **Key Vault Soft Delete**: 90-day retention for deleted secrets
+- **SQL Auditing**: Optional - requires storage account for audit logs
+- **SQL Advanced Threat Protection**: Optional - detects suspicious database activities
 
-- **Azure Bastion**: Browser-based secure access without SSH keys
-- **No Public IPs**: VM and SQL are in private subnets
-- **VNet Rules**: SQL access restricted to private subnet only
-- **Service Endpoints**: Microsoft.Sql endpoint configured on private subnet
+### Compliance
+- All resources tagged with `DataClassification = "PII"` and `Compliance = "Critical"`
+- Audit logging available for SQL Database (optional)
+- Threat detection available for SQL Database (optional)
 
-## Application Details
+## Monitoring and Logging
 
-### FastAPI Application
+### Log Analytics Workspace
+- **Workspace**: `law-prod-quotes`
+- **Purpose**: Centralized logging and monitoring
+- **Integration**: Can be connected to Azure Monitor, Application Insights, etc.
 
-- **Framework**: FastAPI 0.104.1
-- **Server**: Uvicorn 0.24.0
-- **Port**: 8000
-- **Endpoint**: `GET /`
-- **Database**: Azure SQL Database via pyodbc
+### Application Logs
+- **Cloud-init Logs**: `/var/log/cloud-init-output.log`
+- **Application Setup Log**: `/var/log/quotes-app-setup.log`
+- **Systemd Service Logs**: `sudo journalctl -u quotes-app -f`
 
-### Database Schema
-
-```sql
-CREATE TABLE quotes (
-    id INT IDENTITY(1,1) PRIMARY KEY,
-    quote NVARCHAR(MAX) NOT NULL
-);
-```
-
-Initial seed data includes 5 inspirational quotes.
-
-## Testing
-
-### Test Application Locally on VM
-
-```bash
-curl http://localhost:8000/
-```
-
-Expected response:
-```json
-{"quote": "The only way to do great work is to love what you do."}
-```
-
-### Test via Application Gateway
-
-```bash
-curl http://load_balancer_public_ip/
-```
-
-### Application Response Screenshot
-
-The application successfully returns random quotes from the database when accessed via the Application Gateway:
-
-![Application Response](screenshot.png)
-
-The JSON response displays a random quote from the database, confirming the end-to-end connectivity from the Application Gateway through the VM to the SQL Database.
-
-### Check Service Status
-
-```bash
-sudo systemctl status quotes-app
-sudo journalctl -u quotes-app -f
-```
-
-## Resource Details
-
-### Resource Group
-
-All resources are deployed to: `tfstate-rg`
-
-### Key Resources
-
-- **VNet**: `vnet-prod-connectivity` (10.0.0.0/16)
-- **VM**: `vm-prod-quotes` (Standard_D2s_v3, Central India)
-- **SQL Server**: `<sql-server-name>.database.windows.net`
-- **Application Gateway**: `agw-prod-ingress`
-- **Key Vault**: `kv-prod-secrets-<random-suffix>`
-- **Bastion**: `bastion-prod-connectivity`
-
-### Network Configuration
-
-- **Public Subnet**: 10.0.1.0/24
-- **Private Subnet**: 10.0.2.0/24 (VM subnet)
-- **App Gateway Subnet**: 10.0.3.0/24
-- **Bastion Subnet**: 10.0.4.0/26
+### Load Balancer Metrics
+- **Health Probe Status**: Monitor backend pool health
+- **Data Path Availability**: Track Load Balancer availability
+- **Backend Pool Status**: View healthy/unhealthy instances
 
 ## Troubleshooting
 
 ### Application Not Responding
 
-1. Check service status: `sudo systemctl status quotes-app`
-2. Check logs: `sudo journalctl -u quotes-app -n 50`
-3. Verify SQL connectivity from VM
-4. Check NSG rules allow App Gateway → VM traffic
+1. **Check Load Balancer Health Probes**:
+   ```bash
+   az network lb show --resource-group tfstate-rg --name lb-prod-ingress --query "probes"
+   ```
 
-### Cannot Access VM via Bastion
+2. **Check VMSS Instance Status**:
+   ```bash
+   az vmss list-instances --resource-group tfstate-rg --name vmss-prod-quotes
+   ```
 
-1. Verify Bastion is deployed and running
-2. Check VM is in the same VNet as Bastion
-3. Verify credentials from Key Vault
+3. **Check Application Service** (via Azure VMSS Run Command):
+   ```bash
+   az vmss run-command invoke \
+     --resource-group tfstate-rg \
+     --name vmss-prod-quotes \
+     --instance-id 0 \
+     --command-id RunShellScript \
+     --scripts "sudo systemctl status quotes-app"
+   ```
 
-### Application Gateway Health Probe Failing
+4. **Check NSG Rules**: Verify ingress rules allow traffic on port 8000
 
-1. Verify VM service is running on port 8000
-2. Check NSG allows traffic from App Gateway subnet
-3. Test locally: `curl http://localhost:8000/`
+### Load Balancer Health Probe Failing
+
+1. **Verify VM Service is Running**: Check if application is listening on port 8000
+2. **Check NSG Rules**: Ensure `AllowLoadBalancerToVM` rule exists (AzureLoadBalancer service tag)
+3. **Test Locally**: `curl http://localhost:8000/` from VM
+4. **Verify Health Probe Path**: Should be `/` (root endpoint)
+
+### Cannot Access Application via Load Balancer
+
+1. **Check Public IP**: Verify Load Balancer has a public IP assigned
+2. **Check NSG Rules**: Ensure `AllowInternetToVM` rule exists (allows client traffic)
+3. **Check Load Balancer Rule**: Verify rule is enabled and probe is passing
+4. **Check Backend Pool**: Verify VMSS instances are registered in backend pool
+
+### VMSS Autoscaling Not Working
+
+1. **Check Autoscale Settings**:
+   ```bash
+   az monitor autoscale list --resource-group tfstate-rg
+   ```
+
+2. **Verify Metrics**: Check CPU metrics in Azure Monitor
+3. **Check Cooldown Periods**: Ensure cooldown periods have elapsed
+4. **Verify Min/Max Capacity**: Check if instances are at min/max limits
+
+### SQL Connection Issues
+
+1. **Verify Private Endpoint**: Check if Private Endpoint is created and linked
+2. **Check DNS Resolution**: Verify SQL FQDN resolves to private IP
+3. **Check Service Endpoints**: Ensure Microsoft.Sql service endpoint is enabled on subnet
+4. **Verify NSG Rules**: Check outbound rule allows port 1433
+
+## Resource Details
+
+### Resource Group
+All resources are deployed to: `tfstate-rg`
+
+### Key Resources
+- **VNet**: `vnet-prod-connectivity` (10.0.0.0/16)
+- **Load Balancer**: `lb-prod-ingress`
+- **VMSS**: `vmss-prod-quotes` (Standard_D2s_v3, Central India)
+- **SQL Server**: `<sql-server-name>.database.windows.net`
+- **Key Vault**: `kv-prod-secrets-<random-suffix>`
+- **Log Analytics**: `law-prod-quotes`
+
+### Network Configuration
+- **Public Subnet**: 10.0.1.0/24
+- **Private Subnet**: 10.0.2.0/24 (VMSS subnet)
+- **App Gateway Subnet**: 10.0.3.0/24
 
 ## Maintenance
 
 ### Update Application Code
 
-1. Connect to VM via Bastion
-2. Edit files in `/opt/quotes-app/`
-3. Restart service: `sudo systemctl restart quotes-app`
+1. **Update Application Files**: Modify files in `app/` directory
+2. **Re-apply Terraform**: Run `terraform apply` in products/quotes directory
+3. **VMSS Rolling Update**: Terraform will trigger a rolling update of VMSS instances
+4. **Automatic Deployment**: New instances will automatically deploy updated application via cloud-init
 
-### Rotate Credentials
-
-Credentials are stored in Key Vault. To rotate:
-
-1. Generate new secrets in Key Vault
-2. Update service environment variables
-3. Restart application service
-
-### View Logs
+### Scale VMSS Manually
 
 ```bash
-# Application logs
-sudo journalctl -u quotes-app -f
-
-# Cloud-init logs
-sudo cat /var/log/cloud-init-output.log
+az vmss scale \
+  --resource-group tfstate-rg \
+  --name vmss-prod-quotes \
+  --new-capacity <desired-instance-count>
 ```
 
-## Cost Optimization
+### Update Configuration
 
-- **VM**: Standard_D2s_v3 (2 vCPU, 8GB RAM) this vm was used because small vm's where not available - can be scaled down 
-- **SQL Database**: Basic tier (2GB max)
-- **Application Gateway**: Standard_v2 with capacity 1
-- **Bastion**: Basic tier (manual code deployment required)
+1. **Modify terraform.tfvars**: Update configuration values
+2. **Run terraform plan**: Review changes
+3. **Run terraform apply**: Apply changes
 
-## Future Enhancements
+## Cleanup
 
-- Automate application deployment via custom script extension
-- Implement CI/CD pipeline for code updates
-- Add monitoring alerts and dashboards
-- Scale to multiple VMs with load balancing
-- Implement private endpoints for SQL Database
-- Add SSL/TLS certificates to Application Gateway
-- **Deploy to Azure Kubernetes Service (AKS)**: 
-  - Use the provided multi-stage Dockerfile to containerize the application
-  - Deploy to AKS cluster with proper networking and security configurations
-  - Implement horizontal pod autoscaling based on CPU/memory metrics
-  - Use Azure Container Registry (ACR) for image storage
-  - Configure Azure SQL Database connection pooling for Kubernetes pods
-  - Implement Kubernetes secrets for SQL credentials management
-  - Use Azure Load Balancer or Application Gateway Ingress Controller for traffic routing
-  - Enable Azure Monitor / grafana stack for Containers for observability
+To destroy all resources:
+
+```bash
+# Destroy in reverse order
+cd tf/environments/prod/products/quotes
+terraform destroy
+
+cd ../platforms/ingress
+terraform destroy
+
+cd ../landing-zones/connectivity
+terraform destroy
+```
+
+**Note**: Key Vault with purge protection enabled cannot be deleted immediately. You may need to disable purge protection first or wait for the retention period.
 

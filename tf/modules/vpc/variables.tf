@@ -23,12 +23,6 @@ variable "app_gateway_subnet_cidr" {
   type        = string
 }
 
-variable "bastion_subnet_cidr" {
-  description = "CIDR block for Bastion subnet"
-  type        = string
-  default     = ""
-}
-
 variable "location" {
   description = "Azure region"
   type        = string

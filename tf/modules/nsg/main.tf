@@ -29,6 +29,34 @@ resource "azurerm_network_security_rule" "app_gateway_to_vm" {
   network_security_group_name = azurerm_network_security_group.main.name
 }
 
+resource "azurerm_network_security_rule" "load_balancer_to_vm" {
+  name                        = "AllowLoadBalancerToVM"
+  priority                    = 1002
+  direction                   = "Inbound"
+  access                      = "Allow"
+  protocol                    = "Tcp"
+  source_port_range           = "*"
+  destination_port_range      = "8000"
+  source_address_prefix       = "AzureLoadBalancer"
+  destination_address_prefix  = "*"
+  resource_group_name         = var.resource_group_name
+  network_security_group_name = azurerm_network_security_group.main.name
+}
+
+resource "azurerm_network_security_rule" "internet_to_vm_via_lb" {
+  name                        = "AllowInternetToVM"
+  priority                    = 1003
+  direction                   = "Inbound"
+  access                      = "Allow"
+  protocol                    = "Tcp"
+  source_port_range           = "*"
+  destination_port_range      = "8000"
+  source_address_prefix       = "*"
+  destination_address_prefix  = "*"
+  resource_group_name         = var.resource_group_name
+  network_security_group_name = azurerm_network_security_group.main.name
+}
+
 resource "azurerm_network_security_rule" "vm_to_sql" {
   name                        = "AllowVMToSQL"
   priority                    = 1001

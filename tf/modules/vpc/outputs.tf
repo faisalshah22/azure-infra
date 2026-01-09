@@ -22,9 +22,3 @@ output "app_gateway_subnet_id" {
   description = "ID of the Application Gateway subnet"
   value       = azurerm_subnet.app_gateway.id
 }
-
-output "bastion_subnet_id" {
-  description = "ID of the Bastion subnet"
-  value       = length(azurerm_subnet.bastion) > 0 ? azurerm_subnet.bastion[0].id : null
-}
-

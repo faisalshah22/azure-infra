@@ -24,20 +24,8 @@ module "vpc" {
   public_subnet_cidr      = var.public_subnet_cidr
   private_subnet_cidr     = var.private_subnet_cidr
   app_gateway_subnet_cidr = var.app_gateway_subnet_cidr
-  bastion_subnet_cidr     = var.bastion_subnet_cidr
   location                = var.location
   resource_group_name     = data.azurerm_resource_group.main.name
   tags                    = var.tags
-}
-
-module "bastion" {
-  count  = var.bastion_subnet_cidr != "" ? 1 : 0
-  source = "../../../../modules/bastion"
-
-  bastion_name        = "bastion-prod-connectivity"
-  location            = var.location
-  resource_group_name = data.azurerm_resource_group.main.name
-  subnet_id           = module.vpc.bastion_subnet_id
-  tags                = var.tags
 }
 

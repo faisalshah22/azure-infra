@@ -36,14 +36,19 @@ data "azurerm_resource_group" "main" {
   name = "tfstate-rg"
 }
 
-module "app_gateway" {
-  source = "../../../../modules/app-gateway"
+data "azurerm_virtual_network" "main" {
+  name                = "vnet-prod-connectivity"
+  resource_group_name = data.azurerm_resource_group.main.name
+}
 
-  gateway_name        = "agw-prod-ingress"
+module "load_balancer" {
+  source = "../../../../modules/load-balancer"
+
+  lb_name             = "lb-prod-ingress"
   location            = var.location
   resource_group_name = data.azurerm_resource_group.main.name
-  subnet_id           = data.terraform_remote_state.connectivity.outputs.app_gateway_subnet_id
-  vm_private_ip       = try(data.terraform_remote_state.quotes.outputs.vm_private_ip, var.vm_private_ip)
-  tags                = var.tags
+  vnet_id             = data.azurerm_virtual_network.main.id
+  zones               = var.lb_zones
+  tags                 = var.tags
 }
 
