@@ -556,3 +556,224 @@ terraform destroy
 
 **Note**: Key Vault with purge protection enabled cannot be deleted immediately. You may need to disable purge protection first or wait for the retention period.
 
+## Future Enhancements
+
+This section outlines planned improvements and enhancements to the infrastructure architecture.
+
+### 1. Docker Containerization and Kubernetes Migration
+
+#### Dockerfile Overview
+
+A multi-stage Dockerfile has been created at `app/Dockerfile` to containerize the FastAPI quotes application. This Dockerfile implements best practices for production containerization:
+
+**Stage 1: Build Stage**
+- Uses `python:3.11-slim` as the base image
+- Installs build dependencies (gcc, g++, unixodbc-dev) required for compiling Python packages
+- Installs Microsoft ODBC Driver 18 for SQL Server to enable database connectivity
+- Installs Python dependencies from `requirements.txt` into user space
+
+**Stage 2: Runtime Stage**
+- Uses minimal `python:3.11-slim` base image for smaller final image size
+- Installs only runtime dependencies (unixodbc, ODBC Driver 18)
+- Copies pre-built Python dependencies from the builder stage
+- Copies application code (`app.py`, `init-db.sql`)
+- Exposes port 8000 for the FastAPI application
+- Includes health check endpoint for container orchestration
+- Runs uvicorn server on container startup
+
+**Benefits of Containerization:**
+- **Consistency**: Application runs identically across all environments
+- **Isolation**: Application dependencies are isolated from host system
+- **Portability**: Container can run on any Docker-compatible platform
+- **Version Control**: Application versioning through container images
+- **Easier Updates**: Rolling updates without VM recreation
+
+#### Migration from VMs to Kubernetes (K8s)
+
+**Current State**: Application runs on Virtual Machine Scale Set (VMSS) with cloud-init deployment.
+
+**Target State**: Migrate to Azure Kubernetes Service (AKS) for improved orchestration and scalability.
+
+**Migration Strategy:**
+
+1. **Container Registry Setup**
+   - Create Azure Container Registry (ACR) to store Docker images
+   - Build and push Docker image: `docker build -t <acr-name>.azurecr.io/quotes-app:latest .`
+   - Enable ACR authentication for AKS cluster
+
+2. **AKS Cluster Creation**
+   - Deploy AKS cluster with node pool in private subnet
+   - Configure network plugin (Azure CNI or kubenet)
+   - Enable Azure AD integration for RBAC
+   - Configure auto-scaling for node pools
+
+3. **Kubernetes Deployment**
+   - Create Kubernetes Deployment manifest for quotes-app
+   - Configure ConfigMap for environment variables (SQL connection strings)
+   - Use Azure Key Vault Provider for Secrets Store CSI driver to inject secrets
+   - Create Service resource (ClusterIP) for internal communication
+   - Configure Horizontal Pod Autoscaler (HPA) for automatic scaling
+
+4. **Ingress Configuration**
+   - Deploy Azure Application Gateway Ingress Controller (AGIC) or NGINX Ingress Controller
+   - Configure Ingress resource with TLS termination
+   - Map domain name to Application Gateway public IP
+   - Enable HTTPS with SSL/TLS certificates
+
+5. **Database Connectivity**
+   - Maintain Azure SQL Database with Private Endpoint
+   - Configure AKS pods to use Private Endpoint for SQL access
+   - Update connection strings in ConfigMap/Secrets
+
+6. **Migration Benefits**
+   - **Better Resource Utilization**: Kubernetes efficiently schedules containers
+   - **Faster Scaling**: Pod-level scaling is faster than VM scaling
+   - **Rolling Updates**: Zero-downtime deployments with rolling updates
+   - **Self-Healing**: Automatic pod restart on failures
+   - **Service Discovery**: Built-in DNS-based service discovery
+   - **Resource Limits**: CPU and memory limits per container
+   - **Multi-Container Support**: Sidecar patterns for logging, monitoring
+
+**Implementation Steps:**
+```bash
+# 1. Build and push Docker image to ACR
+az acr build --registry <acr-name> --image quotes-app:latest app/
+
+# 2. Create AKS cluster
+az aks create --resource-group tfstate-rg --name aks-prod-quotes \
+  --node-count 2 --enable-cluster-autoscaler --min-count 2 --max-count 10 \
+  --network-plugin azure --vnet-subnet-id <subnet-id>
+
+# 3. Deploy application to AKS
+kubectl apply -f k8s/deployment.yaml
+kubectl apply -f k8s/service.yaml
+kubectl apply -f k8s/ingress.yaml
+```
+
+### 2. Domain Name Mapping and HTTPS Certificate
+
+#### Domain Name Configuration
+
+**Current State**: Application is accessible via Load Balancer public IP address only 
+
+**Target State**: Configure custom domain name (e.g., `quotes.example.com`) with HTTPS support.
+
+**Implementation Plan:**
+
+1. **DNS Configuration**
+   - Purchase/configure domain name from DNS provider (e.g., Azure DNS, GoDaddy)
+   - Create A record mapping domain to Load Balancer public IP:
+     ```
+     quotes.example.com → <load-balancer-public-ip>
+     ```
+   - Configure DNS TTL appropriately (300-3600 seconds)
+
+2. **SSL/TLS Certificate**
+   - **Option A: Azure Application Gateway with SSL Certificate**
+     - Deploy Azure Application Gateway in front of Load Balancer
+     - Purchase SSL certificate from Azure App Service Certificate or bring your own certificate
+     - Configure Application Gateway with SSL certificate for HTTPS termination
+     - Update DNS to point to Application Gateway public IP
+     - Configure HTTP to HTTPS redirect
+
+   - **Option B: Azure Front Door with Managed Certificate**
+     - Deploy Azure Front Door as global CDN and WAF
+     - Use Azure-managed SSL certificate (free, auto-renewal)
+     - Configure custom domain with certificate validation
+     - Route traffic to Load Balancer backend
+     - Enable HTTPS redirect and security policies
+
+   - **Option C: Let's Encrypt Certificate (Open Source)**
+     - Use cert-manager in Kubernetes or certbot on VMs
+     - Automatically obtain and renew free SSL certificates
+     - Configure automatic certificate renewal
+
+3. **Load Balancer HTTPS Configuration**
+   - Add HTTPS listener on port 443 to Azure Load Balancer
+   - Configure SSL certificate in Load Balancer
+   - Update load balancing rule for HTTPS traffic
+   - Optionally configure HTTP to HTTPS redirect
+
+**Terraform Implementation Example:**
+```hcl
+# Add to load-balancer module
+resource "azurerm_lb_rule" "https" {
+  name                           = "https-rule"
+  loadbalancer_id                = azurerm_lb.main.id
+  protocol                       = "Tcp"
+  frontend_port                  = 443
+  backend_port                   = 8000
+  frontend_ip_configuration_name = "public-ip"
+  backend_address_pool_ids       = [azurerm_lb_backend_address_pool.vmss.id]
+  probe_id                       = azurerm_lb_probe.http.id
+}
+
+# DNS record (if using Azure DNS)
+resource "azurerm_dns_a_record" "quotes" {
+  name                = "quotes"
+  zone_name           = "example.com"
+  resource_group_name = var.resource_group_name
+  ttl                 = 300
+  records             = [azurerm_public_ip.main.ip_address]
+}
+```
+
+
+### 3. Azure Bastion for Secure VM Access
+
+#### Current State
+
+VMs in the VMSS are deployed in a private subnet with no public IP addresses. Currently, VM access requires:
+- VPN connection to VNet
+- Jump host with public IP
+- Direct network access from allowed IPs
+
+#### Azure Bastion Implementation
+
+**Azure Bastion** provides secure, seamless RDP/SSH connectivity to VMs without exposing them to the internet.
+
+**Architecture:**
+```
+Internet
+  ↓
+Azure Bastion (Public IP)
+  ↓ (Private connection within Azure)
+VMSS Instances (Private Subnet, No Public IP)
+```
+
+### 4. CI/CD Pipeline Implementation
+
+#### Continuous Integration (CI)
+
+**Option A: GitHub Actions**
+- Automate build and test on code push/PR
+- Build Docker images and push to Azure Container Registry (ACR)
+- Run unit tests and security scans
+- Trigger on commits to main/develop branches
+
+**Option B: Jenkins**
+- Deploy Jenkins on Azure VM or use Azure Container Instances
+- Configure Jenkins pipeline for automated builds
+- Integrate with ACR for image storage
+- Set up webhooks for automatic trigger on Git events
+
+#### Continuous Deployment (CD) with ArgoCD
+
+**ArgoCD Setup:**
+- Deploy ArgoCD in AKS cluster or as standalone service
+- Configure Git repository as source of truth for Kubernetes manifests
+- Set up Application definitions pointing to Git repo
+- Enable automatic or manual sync based on Git changes
+
+**Deployment Flow:**
+1. **CI Stage**: Build Docker image → Push to ACR → Tag with version
+2. **CD Stage**: ArgoCD detects Git changes → Syncs manifests → Deploys to AKS
+3. **Rollout**: ArgoCD manages rolling updates with health checks
+4. **Rollback**: Automatic or manual rollback on deployment failures
+
+**Benefits:**
+- **Automated Deployments**: Reduce manual deployment errors
+- **GitOps Approach**: Infrastructure and application code in version control
+- **Visibility**: ArgoCD dashboard shows deployment status and history
+- **Rollback Capability**: Quick rollback to previous versions
+- **Multi-Environment**: Support for dev, staging, and production environments
