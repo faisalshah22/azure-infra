@@ -777,3 +777,8 @@ VMSS Instances (Private Subnet, No Public IP)
 - **Visibility**: ArgoCD dashboard shows deployment status and history
 - **Rollback Capability**: Quick rollback to previous versions
 - **Multi-Environment**: Support for dev, staging, and production environments
+
+
+**monitroing Setup:**
+- monitor appliaction cpu/mem
+- monitor lb health request status etc
