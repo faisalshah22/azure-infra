@@ -66,6 +66,52 @@ check_prerequisites() {
     print_success "All prerequisites met"
 }
 
+# Function to setup Terraform backend
+setup_backend() {
+    print_info "Checking Terraform backend setup..."
+    
+    local RESOURCE_GROUP="tfstate-rg"
+    local STORAGE_ACCOUNT="tfstatestoragein"
+    local CONTAINER="tfstate"
+    local LOCATION="centralindia"
+    
+    # Check if resource group exists, create if not
+    if ! az group show --name "$RESOURCE_GROUP" &> /dev/null; then
+        print_info "Creating resource group: $RESOURCE_GROUP..."
+        az group create --name "$RESOURCE_GROUP" --location "$LOCATION"
+        print_success "Resource group created"
+    else
+        print_info "Resource group exists: $RESOURCE_GROUP"
+    fi
+    
+    # Check if storage account exists, create if not
+    if ! az storage account show --name "$STORAGE_ACCOUNT" --resource-group "$RESOURCE_GROUP" &> /dev/null; then
+        print_info "Creating storage account: $STORAGE_ACCOUNT..."
+        az storage account create \
+            --name "$STORAGE_ACCOUNT" \
+            --resource-group "$RESOURCE_GROUP" \
+            --location "$LOCATION" \
+            --sku Standard_LRS
+        print_success "Storage account created"
+    else
+        print_info "Storage account exists: $STORAGE_ACCOUNT"
+    fi
+    
+    # Check if container exists, create if not
+    if ! az storage container show --name "$CONTAINER" --account-name "$STORAGE_ACCOUNT" --auth-mode login &> /dev/null; then
+        print_info "Creating storage container: $CONTAINER..."
+        az storage container create \
+            --name "$CONTAINER" \
+            --account-name "$STORAGE_ACCOUNT" \
+            --auth-mode login
+        print_success "Storage container created"
+    else
+        print_info "Storage container exists: $CONTAINER"
+    fi
+    
+    print_success "Terraform backend is ready"
+}
+
 # Function to run Terraform commands
 run_terraform() {
     local dir=$1
@@ -215,6 +261,10 @@ main() {
     
     # Check prerequisites
     check_prerequisites
+    echo ""
+    
+    # Setup Terraform backend
+    setup_backend
     echo ""
     
     # Step 1: Deploy Connectivity Layer

@@ -190,7 +190,7 @@ locals {
   init_db_content_b64       = base64encode(file("${path.module}/../../../../../app/init-db.sql"))
   
   cloud_init_script = templatefile("${path.module}/cloud-init.yaml", {
-    sql_server_fqdn      = module.sql.sql_server_fqdn
+    sql_server_fqdn      = module.sql.sql_server_private_fqdn  # Use private endpoint FQDN
     sql_database_name   = module.sql.sql_database_name
     sql_admin_login     = azurerm_key_vault_secret.sql_admin_login.value
     sql_admin_password   = azurerm_key_vault_secret.sql_admin_password.value

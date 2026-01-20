@@ -3,6 +3,11 @@ output "sql_server_fqdn" {
   value       = azurerm_mssql_server.main.fully_qualified_domain_name
 }
 
+output "sql_server_private_fqdn" {
+  description = "Private endpoint FQDN for SQL Server (use this for VNet connections)"
+  value       = "${var.sql_server_name}.privatelink.database.windows.net"
+}
+
 output "sql_server_id" {
   description = "ID of the SQL Server"
   value       = azurerm_mssql_server.main.id
