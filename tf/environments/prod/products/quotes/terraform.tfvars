@@ -24,7 +24,7 @@ sql_short_term_retention_days    = 7
 key_vault_name        = null
 use_existing_key_vault = false
 
-key_vault_allowed_ips = ["157.48.1.236"]
+key_vault_allowed_ips = ["157.48.1.236", "157.48.0.152"]
 
 sql_audit_retention_days = 90
 sql_threat_detection_email_addresses = []
