@@ -17,3 +17,8 @@ output "vmss_resource_group_name" {
   description = "Resource group name of the VMSS"
   value       = var.resource_group_name
 }
+
+output "vmss_instance_count" {
+  description = "Current number of instances in the VMSS"
+  value       = azurerm_linux_virtual_machine_scale_set.main.instances
+}

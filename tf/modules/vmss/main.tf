@@ -4,6 +4,10 @@ terraform {
       source  = "hashicorp/azurerm"
       version = "~> 3.0"
     }
+    null = {
+      source  = "hashicorp/null"
+      version = "~> 3.0"
+    }
   }
 }
 
@@ -67,6 +71,66 @@ resource "azurerm_virtual_machine_scale_set_extension" "enable_password_auth" {
     EOF
     )
   })
+}
+
+# Automatically update VMSS instances to register with Load Balancer backend pool
+resource "null_resource" "vmss_register_with_lb" {
+  count = length(var.load_balancer_backend_pool_ids) > 0 ? 1 : 0
+
+  triggers = {
+    vmss_id                = azurerm_linux_virtual_machine_scale_set.main.id
+    instance_count         = azurerm_linux_virtual_machine_scale_set.main.instances
+    backend_pool_ids       = join(",", var.load_balancer_backend_pool_ids)
+    extension_id           = azurerm_virtual_machine_scale_set_extension.enable_password_auth.id
+  }
+
+  provisioner "local-exec" {
+    command = <<-EOT
+      # Wait for VMSS instances to be provisioned
+      echo "Waiting for VMSS instances to be ready..."
+      MAX_RETRIES=30
+      RETRY_COUNT=0
+      
+      while [ $RETRY_COUNT -lt $MAX_RETRIES ]; do
+        INSTANCE_COUNT=$(az vmss list-instances \
+          --resource-group ${var.resource_group_name} \
+          --name ${azurerm_linux_virtual_machine_scale_set.main.name} \
+          --query "length([?provisioningState=='Succeeded'])" -o tsv 2>/dev/null || echo "0")
+        
+        if [ "$INSTANCE_COUNT" -ge "${azurerm_linux_virtual_machine_scale_set.main.instances}" ]; then
+          echo "All VMSS instances are ready (count: $INSTANCE_COUNT)"
+          break
+        fi
+        
+        RETRY_COUNT=$((RETRY_COUNT + 1))
+        echo "Waiting for VMSS instances... (attempt $RETRY_COUNT/$MAX_RETRIES)"
+        sleep 10
+      done
+      
+      # Get all instance IDs
+      INSTANCE_IDS=$(az vmss list-instances \
+        --resource-group ${var.resource_group_name} \
+        --name ${azurerm_linux_virtual_machine_scale_set.main.name} \
+        --query "[].instanceId" -o tsv 2>/dev/null || echo "")
+      
+      # Update all instances to register with Load Balancer
+      if [ -n "$INSTANCE_IDS" ]; then
+        echo "Updating VMSS instances to register with Load Balancer..."
+        az vmss update-instances \
+          --resource-group ${var.resource_group_name} \
+          --name ${azurerm_linux_virtual_machine_scale_set.main.name} \
+          --instance-ids $INSTANCE_IDS
+        echo "VMSS instances updated successfully"
+      else
+        echo "Warning: No VMSS instances found to update"
+      fi
+    EOT
+  }
+
+  depends_on = [
+    azurerm_linux_virtual_machine_scale_set.main,
+    azurerm_virtual_machine_scale_set_extension.enable_password_auth
+  ]
 }
 
 resource "azurerm_monitor_autoscale_setting" "vmss" {

@@ -18,3 +18,17 @@ output "sql_database_name" {
   value       = module.sql.sql_database_name
 }
 
+output "sql_server_id" {
+  description = "ID of the SQL Server"
+  value       = module.sql.sql_server_id
+}
+
+output "sql_private_endpoint_id" {
+  description = "ID of the SQL Private Endpoint"
+  value       = module.sql.sql_private_endpoint_id
+}
+
+output "vmss_instance_count" {
+  description = "Current number of instances in the VMSS"
+  value       = module.vmss.vmss_instance_count
+}
