@@ -38,13 +38,14 @@ output "app_gateway_subnet_cidr" {
   value       = var.app_gateway_subnet_cidr
 }
 
-output "bastion_id" {
-  description = "ID of the Bastion host"
-  value       = try(module.bastion[0].bastion_id, null)
-}
-
-output "bastion_host_name" {
-  description = "Name of the Bastion host"
-  value       = try(module.bastion[0].bastion_host_name, null)
-}
+# Bastion outputs - commented out until bastion module is implemented
+# output "bastion_id" {
+#   description = "ID of the Bastion host"
+#   value       = try(module.bastion[0].bastion_id, null)
+# }
+#
+# output "bastion_host_name" {
+#   description = "Name of the Bastion host"
+#   value       = try(module.bastion[0].bastion_host_name, null)
+# }
 
